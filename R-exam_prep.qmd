@@ -1,0 +1,355 @@
+---
+title: "R_exam_prep"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+#Lesson 1 tidy data
+
+```{r Import librarys}
+
+
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(broom)
+library(tidyverse)
+library(ggplot2)
+library(gapminder)
+library(rmarkdown)
+
+```
+```{r tidydata page 0-10 clean data example}
+
+
+#read in excel file
+bad_psych_clean <- readxl::read_excel("data/bad-table-psych.xlsx",skip=2,n_max = 12, .name_repair = "universal")
+
+bad_psych_clean %>% 
+  #deselection/removing specified columns
+  select(-Name, -Birthday, Comment) %>% 
+  # ~ anonymous function to select every column, which does not include only NAs or empty strings
+  select(where(~  !(all(is.na(.))  | all(. == "")  )    )) |>
+  # rename columns by anonymous function str_to_lower
+  rename_with(~str_to_lower(.x))  |>
+  # rename columns by anonymous repalce_all(regex_match, replace)
+  rename_with(~str_replace_all(.x, "\\.+", "_"))  %>%
+  # rename column manually
+  rename( "test-time" = `_9`,"rec-lang" = language_11) %>% 
+  #separate columns based on sepaerator 
+  separate(`test_reaction`, into = c("test", "reaction"), sep="=") |>
+  # mutate creates or modifies existing columns 
+  # str_extract() extracts the first complete match from each string (^. means start of the string any first symbol)
+  #  str_detect returns a logical vector with TRUE for each element of string that matches pattern
+  # case when is a combination of if and else statements. It return the the first true corresponding output (e.g. "deu")
+  mutate(gender = str_extract(gender, '^.'),language_native =case_when(str_detect(language_4,"^[gG]") ~ "deu",str_detect(language_4,"^[fF]") ~ "fra"))|>
+  # remove existing row names and create row ids 
+  rowid_to_column() |>
+  # create a row for each seperate stai value
+  separate_rows(stai,  sep = ",") %>% 
+  # just to reorder the columns 
+  select(rowid, starts_with("stai"), everything()) |>
+  separate(stai, into = c("stai_key", "stai_val"), sep = "=") |>
+  # str_c= concatenate string 
+  # trimws = Remove leading and/or trailing whitespace from character strings.
+  mutate(stai_val = as.integer(stai_val), stai_key = str_c("stai_", trimws(stai_key))) |>
+  # change rows to columns by creating more columns
+  pivot_wider( names_from = stai_key, values_from = stai_val ) %>% 
+  select(rowid, id, starts_with("stai"), everything()) %>%
+  pivot_longer(cols = 3:8, names_to = "stai_key", values_to = "stai_val") |>
+  rmarkdown::paged_table()
+```
+
+```{r  tidydata page 0-10 splitting values}
+patient <- data.frame(
+  subject_id = c(1001, 1002, 1003, 1004, 1005, 1006),
+  gender_age = c("f-59", "m-27", "f-42", "f-41", "m-54", "m-61")
+)
+
+# split columns into multiple columns by deliminator
+patient |> 
+  separate_wider_delim(gender_age, delim = "-",
+           names = c("sex", "age"), 
+           cols_remove = TRUE)
+
+# split columns into multiple columns by deliminator
+patient %>% 
+  separate_wider_position(gender_age, 
+          widths = c("sex" = 1, "age" = 3))
+```
+
+
+
+
+```{r  tidydata page 10-20 unite/cocatenate values/lubridate/nesting}
+data_value <-
+  tibble(
+    year = c(2015, 2014, 2014),
+    month = c(11, 2, 4),
+    day = c(23, 1, 30),
+    value = c("high", "low", "low"))
+data_value
+
+# combine multiple columns into one column
+date_unite <-  unite(data_value, 
+                    date, year, month, day, 
+                    sep = "-") 
+date_unite
+
+visit_times <- tribble(
+  ~subject, ~visit_date,
+  1, "01/07/2001",
+  2, "01.MAY.2012",
+  3, "12-07-2015",
+  4, "4/5/14",
+  5, "12. Jun 1999"
+)
+
+
+visit_times %>% 
+  mutate(good_date = 
+           lubridate::dmy(visit_date))
+
+
+patient_df <- tibble(
+    subject_id = 1001:1003, 
+    visit_id = c("1,2, 3", "1|2", "1"),
+    measured = c("9,0, 11", "11, 3", "12"))
+patient_df
+
+
+# splitting values intp multiple columns 
+patient_df %>% 
+  separate_rows(visit_id, measured,
+                convert = TRUE) -> patient_separate
+patient_separate
+
+#Find all combinations
+patient_separate %>% 
+  complete(subject_id, 
+           nesting(visit_id))
+
+```
+
+
+
+#Lesson 2 Import
+
+
+```{r  Import }
+library(tibble)
+library(readr)
+
+
+as_tibble(swiss, rownames = "Province")
+download.file("https://biostat2.uni.lu/practicals/data/swiss.csv", "data/swiss.csv")
+readr::read_delim("data/swiss.csv")
+readr::read_csv(c("data/swiss.csv",  "data/swiss.csv"))
+
+
+```
+
+# Data Wrangling
+
+
+```{r select}
+library(dplyr) 
+library(tidyr)
+library(tidyverse)
+
+judge_url <- "https://biostat2.uni.lu/practicals/data/judgments.tsv"
+judgments <- readr::read_tsv(judge_url)
+
+#select columns based on conditions 
+select(judgments, ends_with("date"), contains("dilemma"))
+select(judgments, starts_with("STAI"), -contains("pre"))
+# Order columns with relocate 
+judgments |> relocate(contains("exclude"))
+```
+
+
+```{r filter}
+# filter by one condition 
+judgments |> relocate(contains("exclude")) |> filter(exclude == 1)
+# filter by more condition 
+filter(judgments, mood_pre < 20 |mood_post < 20 )
+
+# filter does not raise errors!!
+judgments |>
+  filter(subject == c(3, 4, 12, 5)) |>
+  select(subject, gender, age)
+
+# in 
+judgments |>
+  filter(start_date %in% c("11/3/2014", "11/5/2014")) |>
+    select(start_date:age)
+
+judgments |> 
+  filter(!if_any(starts_with("mood_p"), is.na)) |> 
+  select(subject, starts_with("mood"))
+
+
+judgments |>
+  filter(exclude == 0) |> 
+  select(start_date, end_date) |> 
+  distinct()
+
+# rename columns 
+rename(judgments, 
+       sex = gender, 
+       remove  = exclude)
+```
+
+```{r mutate/across}
+
+judgments |>
+  mutate(
+    mood_change = mood_post - mood_pre,
+    mood_change_norm =
+      abs(mood_change / mean(mood_change, na.rm = TRUE))) |>
+  relocate(starts_with("mood")) |> 
+  arrange(desc(mood_change_norm))
+
+# act on multiple columns with across and remove NAs
+judgments |> 
+  summarise(across(starts_with("mood"),  
+                   list(mean, sd), na.rm = TRUE))
+
+
+judgments |> 
+  summarise(across(starts_with("moral_dil"), 
+                   list(aveg = ~ mean(.x, na.rm = TRUE), 
+                        sdev = ~ sd(.x, na.rm = TRUE))))
+```
+
+# Grouping
+
+Most commonly used functions in data manipulation
+
+    select() - columns
+    filter() - rows meeting condition
+    arrange() - sort
+    glimpse() - inspect
+    rename() - change column name
+    relocate() - move columns
+    mutate() - create columns
+    case_when() simplifies if/else/if/else
+    across(), c_across() - work on >1 column
+    group_by(), ungroup(), rowwise()
+    summarise() - group-wise summaries
+
+```{r count/summarize}
+#Count
+count(judgments, condition,
+      sort = TRUE)
+
+judgments |> 
+  group_by(condition) |>
+  summarise(n = n(), .groups = "drop")
+
+
+mutate(judgments,
+       min = min(mood_pre, na.rm = TRUE),
+       max = max(mood_pre, na.rm = TRUE), .before = 1)
+
+
+summarise(judgments,
+          n_rows = n(), 
+          n_subject = n_distinct(subject),
+          first_id = first(subject),
+          last_id = last(subject),
+          mean = mean(mood_pre, na.rm= TRUE),
+          id_10 = nth(subject, n = 10))
+
+#Summarize is removing grouping
+judgments |> 
+  group_by(condition) |> 
+  summarise(min = min(mood_pre, na.rm = TRUE))
+
+```
+
+#Shaping tables
+
+```{r joins}
+(coffee_drinkers <- 
+  tribble(~student, ~coffee_shots, 
+          21,       1,
+          23,       4,
+          211,      3, #<< Missing in judgments data
+          28,       2))
+
+(subject_mood <- judgments |>
+  select(subject, condition, gender, 
+         starts_with("mood")))
+
+#inner_join() is the most strict join operations
+inner_join(subject_mood,
+           coffee_drinkers, 
+           join_by(subject == student))
+
+
+
+```
+
+#String manipulation 
+```{r strings}
+pattern <- "r"
+my_words <- c( "cat", "cart","carrot", "catastrophe",
+               "dog","rat",  "bet")
+str_which(my_words, pattern)
+str_subset(my_words, pattern)
+# get substrings by position
+str_sub(my_words, 1, 3)
+str_replace(my_words, pattern, "R")
+```
+
+```{r regex}
+str_view(my_words, ".at")
+str_subset(my_words, "c..t")
+str_subset(my_words, 'c.r+')
+str_subset(my_words, 'c.r*')
+
+
+my_words
+str_match(my_words, 'c(a.)+t')
+
+```
+
+
+#Plotting 
+
+```{r}
+library(palmerpenguins)
+penguins |>
+  ggplot() +
+  aes(x = flipper_length_mm,
+      y = body_mass_g) +
+  aes(color = sex) +
+  geom_point() +
+  scale_color_manual(values = c("darkorange", "cyan4"),
+                     na.translate = FALSE) +
+  labs(title = "Penguin flipper and body mass",
+       caption = "Horst AM, Hill AP, Gorman KB (2020)",
+       subtitle = "Dimensions for male/female Adelie, Chinstrap and Gentoo Penguins at Palmer Station LTER") +
+  theme(plot.subtitle = element_text(size = 13)) +
+  labs(x = "Flipper length (mm)",
+       y = "Body mass (g)",
+       color = "Penguin gender") +
+  theme(legend.position = "bottom",
+        legend.background =
+          element_rect(fill = "white", color = NA)) +
+  theme(plot.caption = element_text(hjust = 0,
+                                    face = "italic")) +
+  theme(plot.caption.position = "plot") +
+  facet_wrap(~ species) +
+  scale_x_continuous(guide = guide_axis(n.dodge = 2)) +
+  scale_y_continuous(labels = scales::comma)
+```
+
+
+
+
+
+
